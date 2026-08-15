@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+# The upstream entrypoint uses gosu only to restart itself as mysql. Use the
+# distribution-maintained privilege switcher instead of an embedded Go runtime.
+if [ "${1:-}" != mysql ]; then
+    echo '[Account+] Unsupported database service user.' >&2
+    exit 1
+fi
+shift
+exec /usr/bin/setpriv --reuid=mysql --regid=mysql --init-groups -- "$@"

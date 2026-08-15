@@ -1,0 +1,50 @@
+{
+  "audit_date": "2026-10-27",
+  "architecture": "linux/amd64",
+  "reports": [
+    {
+      "image": "app",
+      "image_id": "sha256:a9c159f0185ff88cc3ec242e24ec077103ea8bf8b8cfa76bc128680355c9bb98",
+      "os": {
+        "Family": "alpine",
+        "Name": "3.24.3"
+      },
+      "scanner": {
+        "name": "Trivy",
+        "version": "0.76.1"
+      },
+      "report_sha256": "944aeaa48b9d24d22b3d46e0c964035803550ac3dc5563a876ee0ba936f3e04a",
+      "high": 0,
+      "critical": 0,
+      "created_at": "2026-10-26T23:52:53.598667967Z"
+    },
+    {
+      "image": "db",
+      "image_id": "sha256:6cdb7f6b0f003446d414ed5c8042090ccaa24e56f736d019e39025cf35b762d1",
+      "os": {
+        "Family": "ubuntu",
+        "Name": "22.04"
+      },
+      "scanner": {
+        "name": "Trivy",
+        "version": "0.76.1"
+      },
+      "report_sha256": "fe4ed2a745d968ce123fdf62673a1c0bac3c466f2026e3fd500cd37b63e95dc3",
+      "high": 0,
+      "critical": 0,
+      "created_at": "2026-10-26T23:39:19.291883903Z"
+    }
+  ],
+  "negative_controls": {
+    "gitleaks_canary_exit_code": 1,
+    "unpatched_gosu_image": {
+      "high": 24,
+      "critical": 1,
+      "trivy_exit_code": 1
+    },
+    "old_alpine": {
+      "scanner_reports_php_cves": false,
+      "eosl_policy_exit_code": 1
+    }
+  }
+}

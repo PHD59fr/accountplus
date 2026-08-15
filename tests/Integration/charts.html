@@ -1,0 +1,127 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'">
+<title>Chart integration check</title>
+<pre id="test-result">RUNNING</pre>
+<iframe id="dashboard" style="width:1400px;height:1100px" title="Dashboard under test"></iframe>
+<script>
+(async function () {
+    const output = document.getElementById('test-result');
+    try {
+        const login = await fetch('/login');
+        const html = new DOMParser().parseFromString(await login.text(), 'text/html');
+        const token = html.querySelector('[name="_csrf_token"]').value;
+        const result = await fetch('/login', {
+            method: 'POST',
+            body: new URLSearchParams({_csrf_token: token, username: 'admin', password: 'integration-password'})
+        });
+        if (!result.ok) throw new Error('Test login failed: ' + result.status);
+        const dashboard = new DOMParser().parseFromString(await result.text(), 'text/html');
+        const company = [...dashboard.querySelectorAll('[name="company_id"] option')]
+            .find(option => option.textContent.includes('A integration'));
+        if (!company) throw new Error('Missing company fixture');
+        await fetch('/companies/select', {
+            method: 'POST',
+            body: new URLSearchParams({
+                _csrf_token: dashboard.querySelector('[name="_csrf_token"]').value,
+                company_id: company.value, redirect_to: '/'
+            })
+        });
+        const frame = document.getElementById('dashboard');
+        const checks = [];
+        for (const path of ['/', '/reports/transactions']) {
+            const loaded = new Promise(resolve => frame.addEventListener('load', resolve, {once: true}));
+            frame.src = path;
+            await loaded;
+            const page = frame.contentWindow;
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (!page.Chart || page.Chart.version !== '4.4.1') throw new Error('Chart.js did not load');
+            const canvases = [...page.document.querySelectorAll('.breakdown-charts canvas')];
+            if (canvases.length !== (path === '/' ? 3 : 2)) throw new Error('Unexpected number of breakdown charts');
+            const charts = canvases.map(canvas => {
+                const chart = page.Chart.getChart(canvas);
+                if (!chart) throw new Error('Missing chart: ' + canvas.id);
+                chart.stop();
+                chart.options.animation = false;
+                chart.resize();
+                chart.update('none');
+                if (!chart.data.datasets[0].data.some(value => value > 0)
+                    || !chart.getDatasetMeta(0).data.some(arc => arc.circumference > 0)) {
+                    throw new Error('Chart has no visible segments: ' + canvas.id);
+                }
+                {
+                    const dataId = canvas.id.endsWith('-label') ? canvas.id + '-data' : canvas.id.replace(/-(cat|type)$/, '-data');
+                    const chartData = JSON.parse(page.document.getElementById(dataId).textContent);
+                    const percent = new Intl.NumberFormat(page.document.documentElement.lang, {maximumFractionDigits: 1});
+                    const total = chart.data.datasets[0].data.reduce((sum, value) => sum + value, 0);
+                    if (!chart.legend.legendItems.every(item => {
+                        const value = canvas.id.endsWith('-cat') ? chartData.categories[item.index].percent
+                            : canvas.id.endsWith('-label') ? chartData.labels[item.index].percent
+                            : (total > 0 ? chart.data.datasets[0].data[item.index] / total * 100 : 0);
+                        const characters = Array.from(chart.data.labels[item.index]);
+                        const label = canvas.id.endsWith('-label') && characters.length > 32
+                            ? characters.slice(0, 32).join('') + '…' : chart.data.labels[item.index];
+                        return item.text === label + ' (' + percent.format(value) + ' %)';
+                    })) {
+                        throw new Error('Legend has incorrect percentages: ' + canvas.id);
+                    }
+                    const first = chart.legend.legendItems[0];
+                    chart.options.plugins.legend.onClick.call(chart.legend, null, first, chart.legend);
+                    if (chart.getDataVisibility(first.index)) throw new Error('Legend toggle did not hide the category');
+                    chart.options.plugins.legend.onClick.call(chart.legend, null, first, chart.legend);
+                    if (!chart.getDataVisibility(first.index)) throw new Error('Legend toggle did not restore the category');
+                }
+                const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+                if (!pixels.some((value, index) => index % 4 === 3 && value > 0)) {
+                    throw new Error('Chart is blank: ' + canvas.id + ' ' + canvas.width + 'x' + canvas.height + ' ' + JSON.stringify(chart.data));
+                }
+                return {id: canvas.id, width: canvas.width, height: canvas.height, data: chart.data.datasets[0].data, legend: chart.legend.legendItems.map(item => item.text)};
+            });
+            checks.push(...charts);
+        }
+        const settingsPage = new DOMParser().parseFromString(await (await fetch('/admin/settings')).text(), 'text/html');
+        const form = settingsPage.querySelector('form[action="/admin/settings/dashboard"]');
+        if (!form) throw new Error('Dashboard settings form is missing');
+        const original = new URLSearchParams(new FormData(form));
+        const available = [...form.querySelectorAll('[name="dashboard_widgets[]"]')].map(input => input.value);
+        if (available.length !== 9) throw new Error('Expected nine dashboard settings');
+        const csrf = form.querySelector('[name="_csrf_token"]').value;
+        try {
+            for (const selected of [['balance', 'type_breakdown'], ['accounts', 'category_breakdown'], ['label_breakdown'], ['income', 'expenses', 'recurring', 'recent_transactions'], []]) {
+                const values = new URLSearchParams({_csrf_token: csrf});
+                selected.forEach(key => values.append('dashboard_widgets[]', key));
+                const saved = await fetch('/admin/settings/dashboard', {method: 'POST', body: values});
+                if (!saved.ok) throw new Error('Dashboard settings could not be saved');
+                const savedPage = new DOMParser().parseFromString(await saved.text(), 'text/html');
+                const checked = [...savedPage.querySelectorAll('[name="dashboard_widgets[]"]:checked')].map(input => input.value).sort();
+                if (checked.join() !== [...selected].sort().join()) throw new Error('Checkbox selection did not persist');
+                const loaded = new Promise(resolve => frame.addEventListener('load', resolve, {once: true}));
+                frame.src = '/';
+                await loaded;
+                const page = frame.contentWindow;
+                const visible = [...page.document.querySelectorAll('[data-dashboard-widget]')].map(element => element.dataset.dashboardWidget).sort();
+                if (visible.join() !== [...selected].sort().join()) throw new Error('Unexpected dashboard elements: ' + visible);
+                for (const canvas of page.document.querySelectorAll('.breakdown-charts canvas')) {
+                    if (!page.Chart.getChart(canvas)) throw new Error('Independent chart did not initialize: ' + canvas.id);
+                }
+                if (selected.length === 0 && page.document.querySelector('.hero-metrics, section.grid, .breakdown-charts')) {
+                    throw new Error('Hidden elements left empty dashboard containers');
+                }
+                checks.push({visible});
+            }
+            const loaded = new Promise(resolve => frame.addEventListener('load', resolve, {once: true}));
+            frame.src = '/reports/transactions';
+            await loaded;
+            if (frame.contentDocument.querySelectorAll('.breakdown-charts canvas').length !== 2) {
+                throw new Error('Dashboard settings changed report charts');
+            }
+        } finally {
+            const restored = await fetch('/admin/settings/dashboard', {method: 'POST', body: original});
+            if (!restored.ok) throw new Error('Could not restore dashboard settings');
+        }
+        output.textContent = 'PASS ' + JSON.stringify(checks);
+    } catch (error) {
+        output.textContent = 'FAIL ' + error.message;
+    }
+})();
+</script>

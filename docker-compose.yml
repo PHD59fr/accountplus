@@ -1,0 +1,70 @@
+services:
+  db:
+    build: ./docker/mariadb
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DB_MIGRATION_USERNAME: ${DB_MIGRATION_USERNAME:-compte_migration}
+      DB_MIGRATION_PASSWORD: ${DB_MIGRATION_PASSWORD:-}
+      DB_MIGRATION_PASSWORD_FILE: ${DB_MIGRATION_PASSWORD_FILE:-}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-compte}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-compte}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-}
+      MYSQL_PASSWORD_FILE: ${MYSQL_PASSWORD_FILE:-}
+      MYSQL_ROOT_PASSWORD_FILE: ${MYSQL_ROOT_PASSWORD_FILE:-}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "accountplus-db-healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    read_only: true
+    tmpfs:
+      - /run/apache2
+      - /var/log/apache2
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    pids_limit: 256
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - app_storage:/var/www/html/app/storage
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:80"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_DATABASE: ${MYSQL_DATABASE:-compte}
+      DB_USERNAME: ${MYSQL_USERNAME:-compte}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-}
+      DB_PASSWORD_FILE: ${MYSQL_PASSWORD_FILE:-}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-}
+      APP_SESSION_SECURE: ${APP_SESSION_SECURE:-false}
+      APP_HSTS_MAX_AGE: ${APP_HSTS_MAX_AGE:-}
+      APP_SETUP_ENABLED: ${APP_SETUP_ENABLED:-false}
+      APP_SETUP_TOKEN: ${APP_SETUP_TOKEN:-}
+      APP_SETUP_TOKEN_FILE: ${APP_SETUP_TOKEN_FILE:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  app_storage:

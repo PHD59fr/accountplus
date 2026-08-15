@@ -1,0 +1,77 @@
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [master, main]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+      GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.0@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate Compose and build maintained runtimes
+        run: |
+          docker compose config --quiet
+          docker build --pull --no-cache -t accountplus-security-app .
+          docker build --pull --no-cache -t accountplus-security-db docker/mariadb
+          docker run --rm --entrypoint php accountplus-security-app app/bin/check-runtime.php
+          docker run --rm --entrypoint mariadbd accountplus-security-db --version
+      - name: Syntax and unit tests on the deployed runtime
+        run: |
+          docker run --rm --user apache --entrypoint sh -v "$PWD:/workspace:ro" -w /workspace accountplus-security-app -c 'find app tests -name "*.php" -print0 | xargs -0 -n1 php -l && php -l index.php && php tests/run.php'
+      - name: Database, HTTP, migration and restore regression tests
+        env:
+          SECURITY_BROWSER: ${{ matrix.runner == 'ubuntu-latest' && 'google-chrome' || '' }}
+        run: |
+          python3 tests/security_policy_test.py
+          python3 tests/Integration/security_stack.py
+      - name: Physical legacy volume upgrade and cold rollback rehearsal
+        run: python3 tests/Integration/upgrade_rehearsal.py
+      - name: Secret scans of accessible history and working tree
+        run: |
+          mkdir -p /tmp/security-reports
+          docker run --rm -v "$PWD:/source:ro" -v /tmp/security-reports:/reports "$GITLEAKS_IMAGE" git /source --log-opts=--all --redact --report-format json --report-path /reports/secrets-history.json
+          docker run --rm -v "$PWD:/source:ro" -v /tmp/security-reports:/reports "$GITLEAKS_IMAGE" dir /source --redact --report-format json --report-path /reports/secrets-tree.json
+      - name: Verify secret scanner rejects a synthetic credential
+        run: |
+          mkdir -p /tmp/scanner-canary
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('/tmp/scanner-canary/canary.txt').write_text('github_token = "' + 'ghp_' + 'Ab3Cd4Ef5Gh6Ij7Kl8Mn9Op0Qr1St2Uv3Wx4' + '"')
+          PY
+          set +e
+          docker run --rm -v /tmp/scanner-canary:/source:ro "$GITLEAKS_IMAGE" dir /source --redact
+          result=$?
+          set -e
+          test "$result" -eq 1
+      - name: Scan both deployable images and fail on HIGH or CRITICAL findings
+        run: |
+          docker save -o /tmp/security-reports/app.tar accountplus-security-app
+          docker save -o /tmp/security-reports/db.tar accountplus-security-db
+          docker run --rm -v /tmp/security-reports:/scan "$TRIVY_IMAGE" image --input /scan/app.tar --scanners vuln --severity HIGH,CRITICAL --format json --output /scan/app.json
+          docker run --rm -v /tmp/security-reports:/scan "$TRIVY_IMAGE" image --input /scan/db.tar --scanners vuln --severity HIGH,CRITICAL --format json --output /scan/db.json
+          python3 tools/security-check.py /tmp/security-reports/app.json /tmp/security-reports/db.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: security-reports-${{ matrix.runner }}
+          path: /tmp/security-reports/*.json
+          retention-days: 14
