@@ -1,0 +1,21 @@
+DirectoryIndex index.php
+Options -Indexes
+
+RewriteEngine On
+
+# Static assets may never execute server-side code.
+RewriteRule ^assets/.*\.(php[0-9]?|phtml|phar|cgi|pl)(/|$) - [F,L,NC]
+
+# Deny repository metadata and other hidden files.
+RewriteRule (^|/)\. - [F,L]
+
+# Block direct web access to private application directories.
+RewriteRule ^app(/|$) - [F,L,NC]
+RewriteRule ^(src|config|templates|storage|database|docs|tests|tools|bin|docker|public)(/|$) - [F,L,NC]
+RewriteRule ^config\.php$ - [F,L,NC]
+RewriteRule ^(composer\.(json|lock)|README\.md|Dockerfile|docker-compose\.ya?ml)$ - [F,L,NC]
+
+# Front controller for all application routes.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.php [L]
