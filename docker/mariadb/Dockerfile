@@ -1,4 +1,4 @@
-FROM mariadb:10.11
+FROM mariadb:12.2
 RUN test -x /usr/bin/setpriv && rm /usr/local/bin/gosu
 COPY --chmod=0755 gosu /usr/local/bin/mysql-switch-user
 RUN ln -s /usr/local/bin/mysql-switch-user /usr/local/bin/gosu
