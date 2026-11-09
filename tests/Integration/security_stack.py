@@ -224,7 +224,7 @@ with tempfile.TemporaryDirectory(prefix=PREFIX + '-') as directory:
         assert client.request('/accounts', {'_csrf_token': csrf, 'name': 'Private account', 'initial_balance': '12.00'})[0] == 302
         account = sql('SELECT id FROM accounts ORDER BY id DESC LIMIT 1;').strip().decode()
         code, _, body = client.request('/transactions', {'_csrf_token': csrf, 'account_id': account,
-            'transaction_date': '2026-10-26', 'label': '<script>alert(1)</script>', 'amount': '25.50'})
+            'transaction_date': time.strftime('%Y-%m-%d'), 'label': '<script>alert(1)</script>', 'amount': '25.50'})
         assert code == 302, (code, safe(body.decode()[:200]))
         assert client.request('/admin/data/export', {'_csrf_token': csrf, 'company_id': company})[0] == 302
         exports = php('echo json_encode(array_map("basename", glob("/var/www/html/app/storage/exports/*.compte.zip")));')
