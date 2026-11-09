@@ -67,10 +67,15 @@ final class CategoryRepository
     public function allInCompany(int $companyId): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, company_id, parent_id, name, emoji, category_type, is_active, sort_order
-             FROM categories
-             WHERE company_id = :company_id
-             ORDER BY sort_order ASC, name ASC'
+            'SELECT c.id, c.company_id, c.parent_id, c.name, c.emoji, c.category_type, c.is_active, c.sort_order,
+                    CASE WHEN c.parent_id IS NOT NULL AND p.name IS NOT NULL
+                         THEN CONCAT(p.name, " › ", c.name)
+                         ELSE c.name
+                    END AS path
+             FROM categories c
+             LEFT JOIN categories p ON p.id = c.parent_id AND p.company_id = c.company_id
+             WHERE c.company_id = :company_id
+             ORDER BY path ASC, c.name ASC, c.id ASC'
         );
         $statement->execute(['company_id' => $companyId]);
 

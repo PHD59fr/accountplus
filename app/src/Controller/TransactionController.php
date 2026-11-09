@@ -285,20 +285,12 @@ final class TransactionController
                 ];
             }
             if ($this->categoryRepository !== null) {
-                $allCategories = $this->categoryRepository->allInCompany($currentCompany->id());
-                $nameById = [];
-                foreach ($allCategories as $category) {
-                    $nameById[(int) $category['id']] = (string) ($category['name'] ?? '');
-                }
-                foreach ($allCategories as $category) {
-                    $parentId = isset($category['parent_id']) && $category['parent_id'] !== '' ? (int) $category['parent_id'] : null;
+                foreach ($this->categoryRepository->allInCompany($currentCompany->id()) as $category) {
                     $name = (string) ($category['name'] ?? '');
                     $categories[] = [
                         'id' => (int) ($category['id'] ?? 0),
                         'name' => $name,
-                        'path' => ($parentId !== null && isset($nameById[$parentId]))
-                            ? $nameById[$parentId] . ' › ' . $name
-                            : $name,
+                        'path' => (string) ($category['path'] ?? $name),
                         'emoji' => (string) ($category['emoji'] ?? ''),
                     ];
                 }

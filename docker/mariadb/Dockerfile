@@ -1,4 +1,7 @@
 FROM mariadb:10.11
+RUN apt-get update \
+    && apt-get install -y --only-upgrade apt libapt-pkg6.0 \
+    && rm -rf /var/lib/apt/lists/*
 RUN test -x /usr/bin/setpriv && rm /usr/local/bin/gosu
 COPY --chmod=0755 gosu /usr/local/bin/mysql-switch-user
 RUN ln -s /usr/local/bin/mysql-switch-user /usr/local/bin/gosu

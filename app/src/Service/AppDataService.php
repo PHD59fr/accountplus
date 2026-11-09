@@ -788,32 +788,31 @@ FROM transactions t
         }
 
         $statement = $this->pdo->prepare(
-            'SELECT id, parent_id, name FROM categories WHERE company_id = :company_id AND is_active = 1 ORDER BY name ASC'
+            'SELECT c.id, c.parent_id, c.name,
+                    CASE WHEN c.parent_id IS NOT NULL AND p.name IS NOT NULL
+                         THEN CONCAT(p.name, " › ", c.name)
+                         ELSE c.name
+                    END AS path
+             FROM categories c
+             LEFT JOIN categories p ON p.id = c.parent_id AND p.company_id = c.company_id
+             WHERE c.company_id = :company_id AND c.is_active = 1
+             ORDER BY path ASC, c.name ASC, c.id ASC'
         );
         $statement->execute(['company_id' => $companyId]);
 
         $rows = [];
-        $nameById = [];
         foreach ($statement->fetchAll() as $row) {
             if (!is_array($row)) {
                 continue;
             }
 
-            $id = (int) $row['id'];
-            $nameById[$id] = (string) ($row['name'] ?? '');
             $rows[] = [
-                'id' => $id,
+                'id' => (int) $row['id'],
                 'parent_id' => isset($row['parent_id']) && $row['parent_id'] !== '' ? (int) $row['parent_id'] : null,
                 'name' => (string) ($row['name'] ?? ''),
+                'path' => (string) ($row['path'] ?? $row['name'] ?? ''),
             ];
         }
-
-        foreach ($rows as &$row) {
-            $row['path'] = ($row['parent_id'] !== null && isset($nameById[$row['parent_id']]))
-                ? $nameById[$row['parent_id']] . ' › ' . $row['name']
-                : $row['name'];
-        }
-        unset($row);
 
         return $rows;
     }
